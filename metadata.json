@@ -1,0 +1,6 @@
+{
+  "name": "My Robot Portfolio",
+  "description": "An interactive digital portfolio showcasing robotics engineering projects and accomplishments, with specialized views for both desktop and mobile prototypes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
