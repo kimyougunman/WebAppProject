@@ -49,6 +49,7 @@ interface DesktopPortfolioProps {
   onAddSkill: (skillText: string) => void;
   onDeleteSkill: (index: number) => void;
   onUpdateSkill: (index: number, value: string) => void;
+  onUploadImage?: (projectId: string, file: File) => Promise<string>;
 }
 
 export default function DesktopPortfolio({
@@ -71,6 +72,7 @@ export default function DesktopPortfolio({
   onAddSkill,
   onDeleteSkill,
   onUpdateSkill,
+  onUploadImage,
 }: DesktopPortfolioProps) {
   // Use tempData inside editing sessions, otherwise use canonical read-only data
   const current = isEditMode ? tempData : data;
@@ -100,14 +102,23 @@ export default function DesktopPortfolio({
     }
   };
 
-  const handleImageFileChange = (projectId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (projectId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onUpdateProject(projectId, { imageUrl: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      if (onUploadImage) {
+        try {
+          const url = await onUploadImage(projectId, file);
+          onUpdateProject(projectId, { imageUrl: url });
+        } catch (err) {
+          console.error("Failed to upload image to Firebase Storage:", err);
+        }
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          onUpdateProject(projectId, { imageUrl: reader.result as string });
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

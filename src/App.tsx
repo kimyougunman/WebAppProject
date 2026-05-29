@@ -4,6 +4,24 @@ import MobilePortfolio from './components/MobilePortfolio';
 import DesktopPortfolio from './components/DesktopPortfolio';
 import { Screen, TransitionDirection, PortfolioData, Project, ExperienceLog, AwardItem } from './types';
 import { DEFAULT_PORTFOLIO_DATA } from './data';
+import { isFirebaseConfigured, db, auth, storage } from './firebase';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  User 
+} from 'firebase/auth';
+import { 
+  doc, 
+  onSnapshot, 
+  setDoc 
+} from 'firebase/firestore';
+import { 
+  ref, 
+  uploadBytes, 
+  getDownloadURL 
+} from 'firebase/storage';
 import { 
   RefreshCw, 
   Monitor, 
@@ -20,8 +38,47 @@ import {
   Moon,
   AlertCircle,
   Copy,
-  Check
+  Check,
+  LogOut
 } from 'lucide-react';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error details: ', JSON.stringify(errInfo));
+}
 
 export default function App() {
   // Navigation Screens
@@ -29,18 +86,9 @@ export default function App() {
   const [direction, setDirection] = useState<TransitionDirection>('push');
   const [showHelperInfo, setShowHelperInfo] = useState(true);
 
-  // Core Data State (synchronized with localStorage)
-  const [portfolioData, setPortfolioData] = useState<PortfolioData>(() => {
-    const saved = localStorage.getItem('robot_portfolio_data');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed parsing robot portfolio data', e);
-      }
-    }
-    return DEFAULT_PORTFOLIO_DATA;
-  });
+  // Core Data State (synchronized with Firestore or localStorage fallback)
+  const [portfolioData, setPortfolioData] = useState<PortfolioData>(DEFAULT_PORTFOLIO_DATA);
+  const [dbLoading, setDbLoading] = useState(isFirebaseConfigured);
 
   // Edit Mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -51,9 +99,13 @@ export default function App() {
     return localStorage.getItem('portfolio_light_mode') === 'true';
   });
 
-  // Password Lock state
+  // Track Firebase authenticated user
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(isFirebaseConfigured);
+
+  // Legacy Password Lock state (only used if Firebase is not active)
   const [storedPassword, setStoredPassword] = useState<string>(() => {
-    return localStorage.getItem('portfolio_admin_password') || ''; // Default empty means unlocked
+    return localStorage.getItem('portfolio_admin_password') || '';
   });
   const [passwordInput, setPasswordInput] = useState('');
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -61,13 +113,20 @@ export default function App() {
   const [isSettingPassword, setIsSettingPassword] = useState(false);
   const [newPasswordValue, setNewPasswordValue] = useState('');
 
+  // Firebase email authentication state
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
+
   // JSON Import / Export modal state
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [jsonInputText, setJsonInputText] = useState('');
   const [jsonError, setJsonError] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Sync theme with wrapper element
+  // Sync theme with localStorage
   useEffect(() => {
     localStorage.setItem('portfolio_light_mode', String(isLightMode));
   }, [isLightMode]);
@@ -97,17 +156,82 @@ export default function App() {
     }),
   };
 
-  // Edit Mode Toggle with Password check
-  const handleStartEditing = () => {
-    if (storedPassword) {
-      // Prompt password check first
-      setPasswordInput('');
-      setPasswordError('');
-      setIsPasswordModalOpen(true);
+  // Synchronize Firestore/Local Storage data
+  useEffect(() => {
+    if (isFirebaseConfigured && db) {
+      setDbLoading(true);
+      const docRef = doc(db, 'portfolios', 'main');
+      const unsubscribe = onSnapshot(docRef, (snapshot) => {
+        if (snapshot.exists()) {
+          setPortfolioData(snapshot.data() as PortfolioData);
+        } else {
+          // Document empty in firestore, initialize with default content
+          setDoc(docRef, DEFAULT_PORTFOLIO_DATA)
+            .catch(err => handleFirestoreError(err, OperationType.WRITE, 'portfolios/main'));
+          setPortfolioData(DEFAULT_PORTFOLIO_DATA);
+        }
+        setDbLoading(false);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'portfolios/main');
+        setDbLoading(false);
+      });
+      return () => unsubscribe();
     } else {
-      // Enter edit mode directly
-      setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
-      setIsEditMode(true);
+      // Local fallback
+      const saved = localStorage.getItem('robot_portfolio_data');
+      if (saved) {
+        try {
+          setPortfolioData(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed parsing local data fallback', e);
+        }
+      } else {
+        setPortfolioData(DEFAULT_PORTFOLIO_DATA);
+      }
+      setDbLoading(false);
+    }
+  }, []);
+
+  // Track Firebase authenticated user
+  useEffect(() => {
+    if (!isFirebaseConfigured || !auth) {
+      setAuthLoading(false);
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      // Exit Edit mode automatically if user logs out
+      if (!user) {
+        setIsEditMode(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Edit Mode Toggle
+  const handleStartEditing = () => {
+    if (isFirebaseConfigured) {
+      if (currentUser) {
+        setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+        setIsEditMode(true);
+      } else {
+        setLoginEmail('');
+        setLoginPassword('');
+        setLoginError('');
+        setIsSignUpMode(false);
+        setIsLoginModalOpen(true);
+      }
+    } else {
+      // Offline simulation password flow
+      if (storedPassword) {
+        setPasswordInput('');
+        setPasswordError('');
+        setIsPasswordModalOpen(true);
+      } else {
+        setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+        setIsEditMode(true);
+      }
     }
   };
 
@@ -123,11 +247,54 @@ export default function App() {
     }
   };
 
+  const handleFirebaseLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth) return;
+    setLoginError('');
+    try {
+      if (isSignUpMode) {
+        const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+        setCurrentUser(userCredential.user);
+      } else {
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+        setCurrentUser(userCredential.user);
+      }
+      setIsLoginModalOpen(false);
+      setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+      setIsEditMode(true);
+    } catch (err) {
+      if (err instanceof Error) {
+        setLoginError(err.message);
+      } else {
+        setLoginError('인증 실패. (Authentication Failed)');
+      }
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.error('Sign-out failed', err);
+      }
+    }
+  };
+
   // Edit Mode Save / Cancel
-  const handleSaveEdits = () => {
-    setPortfolioData(tempPortfolioData);
-    localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
-    setIsEditMode(false);
+  const handleSaveEdits = async () => {
+    try {
+      if (isFirebaseConfigured && db) {
+        const docRef = doc(db, 'portfolios', 'main');
+        await setDoc(docRef, tempPortfolioData);
+      } else {
+        setPortfolioData(tempPortfolioData);
+        localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
+      }
+      setIsEditMode(false);
+    } catch (err) {
+      alert('저장 실패 (Save Failed): ' + (err instanceof Error ? err.message : String(err)));
+    }
   };
 
   const handleCancelEdits = () => {
@@ -287,7 +454,31 @@ export default function App() {
     }));
   };
 
-  // Password Setup handlers
+  // Real Storage Upload function passed to view components
+  const handleUploadImage = async (projectId: string, file: File): Promise<string> => {
+    if (isFirebaseConfigured && storage) {
+      const imgRef = ref(storage, `projects/${projectId}/${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytes(imgRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      return url;
+    } else {
+      // Local fallback - read file as base64 string
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+          } else {
+            reject(new Error('FileReader returned non-string result'));
+          }
+        };
+        reader.onerror = () => reject(new Error('FileReader failed'));
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  // Password Setup handlers (offline mode)
   const handleSaveNewPassword = () => {
     setStoredPassword(newPasswordValue);
     localStorage.setItem('portfolio_admin_password', newPasswordValue);
@@ -304,7 +495,6 @@ export default function App() {
   const handleImportJson = () => {
     try {
       const parsed = JSON.parse(jsonInputText);
-      // Validate schema minimally
       if (parsed && typeof parsed === 'object') {
         if (isEditMode) {
           setTempPortfolioData(parsed);
@@ -347,7 +537,7 @@ export default function App() {
       <div className="w-full bg-[#0a0f1d] border-b border-brand-accent/15 px-4 py-2 flex flex-wrap items-center justify-between text-xs font-mono text-text-secondary select-none relative z-50 gap-2">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-brand-accent animate-ping"></span>
-          <span className="text-brand-accent tracking-wider font-bold">PROTOTYPE ENGINE v2.8 //</span>
+          <span className="text-brand-accent tracking-wider font-bold">PROTOTYPE ENGINE v3.0 //</span>
           <span className="text-text-secondary/70">VIEW LAYOUT:</span>
           <span className="px-2 py-0.5 rounded bg-brand-accent/10 border border-brand-accent/25 text-brand-accent uppercase text-[10px] font-bold">
             {screen}
@@ -357,9 +547,14 @@ export default function App() {
               ● EDITING MODE ACTIVE
             </span>
           )}
+          {isFirebaseConfigured && (
+            <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 uppercase text-[9px] font-bold">
+              CLOUD (FIREBASE) ACTIVE
+            </span>
+          )}
         </div>
 
-        {/* Global Controls: Toggle, Dark/Light, Reset, Admin Password Lock, Export */}
+        {/* Global Controls: Toggle, Dark/Light, Reset, Admin LogOut, Export */}
         <div className="flex items-center flex-wrap gap-2 sm:gap-3">
           {/* Theme Toggle */}
           <button
@@ -371,18 +566,36 @@ export default function App() {
             <span className="hidden sm:inline">{isLightMode ? 'Dark Theme' : 'Light Theme'}</span>
           </button>
 
-          {/* Setup / Clear Password Lock */}
-          <button
-            onClick={() => {
-              setNewPasswordValue(storedPassword);
-              setIsSettingPassword(true);
-            }}
-            className={`p-1 px-2.5 rounded border text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors ${storedPassword ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' : 'bg-white/5 border-white/10 text-text-secondary/70'}`}
-            title="관리자 비밀번호 기반 편집 방지 잠금 설정"
-          >
-            {storedPassword ? <Lock className="w-3.5 h-3.5 text-emerald-400" /> : <Unlock className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{storedPassword ? 'Admin Lock: On' : 'Set Admin Lock'}</span>
-          </button>
+          {/* Authentication State LogOut Indicator */}
+          {isFirebaseConfigured ? (
+            currentUser ? (
+              <button
+                onClick={handleSignOut}
+                className="p-1 px-2.5 rounded bg-red-950/40 hover:bg-red-900 border border-red-500/30 text-red-400 text-[11px] flex items-center gap-1.5 cursor-pointer"
+                title="관리자 세션 로그아웃"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Admin Logout ({currentUser.email?.split('@')[0]})</span>
+              </button>
+            ) : (
+              <span className="hidden sm:inline px-2 py-1 text-[10px] text-text-secondary/50 font-mono border border-white/5 bg-white/5 rounded">
+                Admin Locked 🔒
+              </span>
+            )
+          ) : (
+            /* Legacy Lock Toggle if Firebase is offline */
+            <button
+              onClick={() => {
+                setNewPasswordValue(storedPassword);
+                setIsSettingPassword(true);
+              }}
+              className={`p-1 px-2.5 rounded border text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors ${storedPassword ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' : 'bg-white/5 border-white/10 text-text-secondary/70'}`}
+              title="관리자 비밀번호 기반 편집 방지 잠금 설정"
+            >
+              {storedPassword ? <Lock className="w-3.5 h-3.5 text-emerald-400" /> : <Unlock className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{storedPassword ? 'Admin Lock: On' : 'Set Admin Lock'}</span>
+            </button>
+          )}
 
           {/* Backup / Export Import */}
           <button
@@ -407,7 +620,7 @@ export default function App() {
 
       {/* Screen Navigation Guide Overlay */}
       {showHelperInfo && (
-        <div className="mx-auto max-w-[1280px] w-full px-5 pt-3 select-none relative z-10">
+        <div className="mx-auto max-w-[1280px] w-full px-5 pt-3 select-none relative z-10 w-full">
           <div className="bg-brand-accent/5 border border-brand-accent/20 rounded-xl px-4 py-3 text-xs text-text-secondary/90 flex justify-between items-start gap-3">
             <div className="flex items-start gap-2.5">
               <HelpCircle className="w-4 h-4 text-brand-accent mt-0.5 flex-shrink-0" />
@@ -415,8 +628,8 @@ export default function App() {
                 <span className="font-bold text-text-primary">Interactive Editing Guide:</span>
                 <p className="leading-relaxed text-[#b9cacb] dark:text-text-secondary">
                   • 우측 하단의 <strong className="text-brand-accent uppercase">"Edit Mode"</strong> 플로팅 단추를 누르면 포트폴리오를 대시보드처럼 자율 편집하고 관리할 수 있습니다.<br />
-                  • 텍스트 직접수정, 경험 추가/삭제, 기술단어 추가, 프로젝트 추가 및 <strong className="text-brand-accent">이미지 업로드(Base64 인코딩형태)</strong>가 완벽히 지원되며, <strong className="text-brand-accent">localStorage</strong>에 영구 보존됩니다.<br />
-                  • <strong className="text-brand-accent">테마 전환</strong> 단추를 클릭하면 다크모드와 라이트모드가 세련된 미래형 연구실 인터페이스 형태로 자동 변경됩니다.
+                  • {isFirebaseConfigured ? <span className="font-semibold text-emerald-400">Firebase 실시간 동기화가 설정되었습니다! 클라우드에 즉시 저장되고 새로고침에도 보존됩니다.</span> : '현재는 로컬 브라우저 세션 모드입니다. 우수작용을 원할히 테스트할 수 있으며, 이 데이터는 localStorage에 반영 보존됩니다.'}<br />
+                  • 프로젝트 카드 이미지 영역은 드래그 드롭 또는 파일 업로드를 지원하며 {isFirebaseConfigured ? 'Firebase Storage 클라우드에 안전하게 보관됩니다.' : 'Base64 인코딩 주소로 로컬 저장됩니다.'}<br />
                 </p>
               </div>
             </div>
@@ -432,67 +645,76 @@ export default function App() {
 
       {/* Frame Sliding Presentation Core with AnimatePresence */}
       <div className="relative flex-1 w-full overflow-hidden flex flex-col justify-start min-h-[calc(100vh-80px)]">
-        <AnimatePresence initial={false} custom={direction} mode="wait">
-          <motion.div
-            key={screen}
-            custom={direction}
-            variants={slideVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{
-              x: { type: 'spring', stiffness: 380, damping: 32 },
-              opacity: { duration: 0.22 },
-            }}
-            className="w-full flex-1 flex flex-col"
-          >
-            {screen === 'mobile' ? (
-              <MobilePortfolio 
-                onNavigate={handleNavigate}
-                data={portfolioData}
-                isEditMode={isEditMode}
-                tempData={tempPortfolioData}
-                onChangeField={updateDraftField}
-                onAddProject={handleAddProject}
-                onDeleteProject={handleDeleteProject}
-                onUpdateProject={handleUpdateProject}
-                onSortProject={handleSortProject}
-                onAddExperience={handleAddExperience}
-                onDeleteExperience={handleDeleteExperience}
-                onUpdateExperience={handleUpdateExperience}
-                onSortExperience={handleSortExperience}
-                onAddAward={handleAddAward}
-                onDeleteAward={handleDeleteAward}
-                onUpdateAward={handleUpdateAward}
-                onAddSkill={handleAddSkill}
-                onDeleteSkill={handleDeleteSkill}
-                onUpdateSkill={handleUpdateSkill}
-              />
-            ) : (
-              <DesktopPortfolio 
-                onNavigate={handleNavigate}
-                data={portfolioData}
-                isEditMode={isEditMode}
-                tempData={tempPortfolioData}
-                onChangeField={updateDraftField}
-                onAddProject={handleAddProject}
-                onDeleteProject={handleDeleteProject}
-                onUpdateProject={handleUpdateProject}
-                onSortProject={handleSortProject}
-                onAddExperience={handleAddExperience}
-                onDeleteExperience={handleDeleteExperience}
-                onUpdateExperience={handleUpdateExperience}
-                onSortExperience={handleSortExperience}
-                onAddAward={handleAddAward}
-                onDeleteAward={handleDeleteAward}
-                onUpdateAward={handleUpdateAward}
-                onAddSkill={handleAddSkill}
-                onDeleteSkill={handleDeleteSkill}
-                onUpdateSkill={handleUpdateSkill}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
+        {dbLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+            <div className="w-12 h-12 border-4 border-dashed border-brand-accent rounded-full animate-spin"></div>
+            <p className="font-mono text-xs text-brand-accent animate-pulse">로보틱스 포트폴리오 데이터를 동기화하는 중...</p>
+          </div>
+        ) : (
+          <AnimatePresence initial={false} custom={direction} mode="wait">
+            <motion.div
+              key={screen}
+              custom={direction}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: 'spring', stiffness: 380, damping: 32 },
+                opacity: { duration: 0.22 },
+              }}
+              className="w-full flex-1 flex flex-col"
+            >
+              {screen === 'mobile' ? (
+                <MobilePortfolio 
+                  onNavigate={handleNavigate}
+                  data={portfolioData}
+                  isEditMode={isEditMode}
+                  tempData={tempPortfolioData}
+                  onChangeField={updateDraftField}
+                  onAddProject={handleAddProject}
+                  onDeleteProject={handleDeleteProject}
+                  onUpdateProject={handleUpdateProject}
+                  onSortProject={handleSortProject}
+                  onAddExperience={handleAddExperience}
+                  onDeleteExperience={handleDeleteExperience}
+                  onUpdateExperience={handleUpdateExperience}
+                  onSortExperience={handleSortExperience}
+                  onAddAward={handleAddAward}
+                  onDeleteAward={handleDeleteAward}
+                  onUpdateAward={handleUpdateAward}
+                  onAddSkill={handleAddSkill}
+                  onDeleteSkill={handleDeleteSkill}
+                  onUpdateSkill={handleUpdateSkill}
+                  onUploadImage={handleUploadImage}
+                />
+              ) : (
+                <DesktopPortfolio 
+                  onNavigate={handleNavigate}
+                  data={portfolioData}
+                  isEditMode={isEditMode}
+                  tempData={tempPortfolioData}
+                  onChangeField={updateDraftField}
+                  onAddProject={handleAddProject}
+                  onDeleteProject={handleDeleteProject}
+                  onUpdateProject={handleUpdateProject}
+                  onSortProject={handleSortProject}
+                  onAddExperience={handleAddExperience}
+                  onDeleteExperience={handleDeleteExperience}
+                  onUpdateExperience={handleUpdateExperience}
+                  onSortExperience={handleSortExperience}
+                  onAddAward={handleAddAward}
+                  onDeleteAward={handleDeleteAward}
+                  onUpdateAward={handleUpdateAward}
+                  onAddSkill={handleAddSkill}
+                  onDeleteSkill={handleDeleteSkill}
+                  onUpdateSkill={handleUpdateSkill}
+                  onUploadImage={handleUploadImage}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        )}
       </div>
 
       {/* Neon Flowing Edit Floating Button Panel (Bottom Right) */}
@@ -506,14 +728,14 @@ export default function App() {
             <div className="flex gap-2">
               <button
                 onClick={handleCancelEdits}
-                className="px-3.5 py-2.5 bg-red-950/70 hover:bg-red-900 border border-red-500/40 text-red-300 font-semibold rounded text-xs px-3 py-1 cursor-pointer flex items-center gap-1 active:scale-95 transition-all w-[110px] justify-center"
+                className="px-3 py-2 bg-red-950/70 hover:bg-red-900 border border-red-500/40 text-red-300 font-semibold rounded text-xs cursor-pointer flex items-center gap-1 active:scale-95 transition-all w-[110px] justify-center"
               >
                 <X className="w-3.5 h-3.5" />
                 <span>취소 Cancel</span>
               </button>
               <button
                 onClick={handleSaveEdits}
-                className="px-3.5 py-2.5 bg-brand-accent text-[#002022] font-extrabold rounded text-xs px-3 py-1 cursor-pointer flex items-center gap-1 active:scale-95 transition-all w-[110px] justify-center shadow-[0_0_15px_rgba(0,219,231,0.6)]"
+                className="px-3 py-2 bg-brand-accent text-[#002022] font-extrabold rounded text-xs cursor-pointer flex items-center gap-1 active:scale-95 transition-all w-[110px] justify-center shadow-[0_0_15px_rgba(0,219,231,0.6)]"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>저장 Save</span>
@@ -542,7 +764,85 @@ export default function App() {
         )}
       </div>
 
-      {/* Password Validation Modal Overlay */}
+      {/* Firebase Auth Admin Login Modal */}
+      {isLoginModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+          <div className="w-full max-w-sm glass-card p-6 rounded-2xl border border-brand-accent/40 shadow-[0_0_40px_rgba(0,219,231,0.3)] space-y-4">
+            <div className="flex items-center gap-3 border-b border-brand-accent/20 pb-3">
+              <Lock className="w-5 h-5 text-brand-accent" />
+              <div>
+                <h4 className="font-heading font-extrabold text-sm text-text-primary">
+                  {isSignUpMode ? '관리자 신규 가입 (Admin Sign Up)' : '관리자 이메일 로그인 (Admin Log In)'}
+                </h4>
+                <p className="text-[10px] text-text-secondary/60 font-mono mt-0.5">
+                  {isSignUpMode ? 'Create a secure email credential for editing.' : 'Sign in to access secure online editing mode.'}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleFirebaseLoginSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-mono text-brand-accent">이메일 주소 (Email Address)</label>
+                <input 
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="admin@robotops.com"
+                  className="w-full bg-[#0d1222]/90 border border-brand-accent/45 px-3.5 py-2 rounded-lg text-sm text-text-primary outline-none focus:border-brand-accent focus:shadow-[0_0_10px_rgba(0,219,231,0.15)] font-mono"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-mono text-brand-accent">비밀번호 입력 (Password)</label>
+                <input 
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-[#0d1222]/90 border border-brand-accent/45 px-3.5 py-2 rounded-lg text-sm text-text-primary outline-none focus:border-brand-accent focus:shadow-[0_0_10px_rgba(0,219,231,0.15)] font-mono"
+                />
+              </div>
+
+              {loginError && (
+                <div className="flex items-start gap-1.5 text-xs text-red-400 bg-red-950/20 p-2 rounded border border-red-500/20">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span className="break-all">{loginError}</span>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 pt-1.5 text-xs font-mono">
+                <div className="flex gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsLoginModalOpen(false)}
+                    className="flex-1 py-2 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 rounded-lg text-text-secondary cursor-pointer text-center"
+                  >
+                    취소 Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-brand-accent text-[#002022] hover:opacity-90 active:scale-95 font-bold rounded-lg cursor-pointer text-center"
+                  >
+                    {isSignUpMode ? '가입 Register' : '로그인 Sign In'}
+                  </button>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => setIsSignUpMode(!isSignUpMode)}
+                  className="mt-1 w-full text-center hover:text-brand-accent text-[#5a7c85] hover:underline cursor-pointer py-1"
+                >
+                  {isSignUpMode ? '이미 계정이 있나요? 로그인하기' : '가입된 관리자가 없나요? 신규 가입하기'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Validation Modal Overlay (Offline Lock fallback) */}
       {isPasswordModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
           <div className="w-full max-w-sm glass-card p-6 rounded-2xl border border-brand-accent/40 shadow-[0_0_40px_rgba(0,219,231,0.3)] space-y-4">
@@ -594,7 +894,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Password Setting Modal Overlay */}
+      {/* Password Setting Modal Overlay (Offline fallback) */}
       {isSettingPassword && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
           <div className="w-full max-w-sm glass-card p-6 rounded-2xl border border-brand-accent/40 shadow-[0_0_30px_rgba(0,219,231,0.25)] space-y-4">
@@ -677,7 +977,7 @@ export default function App() {
               <textarea
                 value={jsonInputText}
                 onChange={(e) => setJsonInputText(e.target.value)}
-                className="w-full flex-1 min-h-[300px] bg-[#0d1222] border border-brand-accent/30 rounded-xl p-4 font-mono text-xs text-text-primary outline-none focus:border-brand-accent focus:shadow-[0_0_15px_rgba(0,219,231,0.1)] resize-none"
+                className="w-full flex-1 min-h-[200px] bg-[#0d1222] border border-brand-accent/30 rounded-xl p-4 font-mono text-xs text-text-primary outline-none focus:border-brand-accent focus:shadow-[0_0_15px_rgba(0,219,231,0.1)] resize-none"
               />
             </div>
 
@@ -704,7 +1004,7 @@ export default function App() {
                     alert('파일 내보내기 실패');
                   }
                 }}
-                className="px-4 py-2.5 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 text-text-secondary font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/11 text-text-secondary font-bold rounded-lg flex items-center gap-1 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>백업 파일로 다운로드</span>
@@ -714,14 +1014,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsJsonModalOpen(false)}
-                  className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-text-secondary cursor-pointer"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-text-secondary cursor-pointer"
                 >
                   취소 Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleImportJson}
-                  className="px-5 py-2.5 bg-brand-accent text-[#002022] hover:opacity-90 font-extrabold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(0,219,231,0.25)]"
+                  className="px-5 py-2 bg-brand-accent text-[#002022] hover:opacity-90 font-extrabold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(0,219,231,0.25)]"
                 >
                   <Upload className="w-3.5 h-3.5" />
                   <span>데이터 덮어쓰기 Import</span>

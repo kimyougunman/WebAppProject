@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "Portfolio": {
+      "title": "Portfolio",
+      "description": "Unified portfolio representation including hero text, skills, experiences, and project lists.",
+      "type": "object",
+      "properties": {
+        "heroTitle": {
+          "type": "string",
+          "description": "Hero title"
+        },
+        "heroHighlight": {
+          "type": "string",
+          "description": "Highlight text for hero"
+        },
+        "heroSubtitle": {
+          "type": "string",
+          "description": "Hero subtitle"
+        },
+        "heroParagraph": {
+          "type": "string",
+          "description": "Detailed description in hero section"
+        },
+        "heroQuote": {
+          "type": "string",
+          "description": "Focus quote statement"
+        },
+        "githubUrl": {
+          "type": "string",
+          "description": "GitHub public link"
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email"
+        },
+        "skills": {
+          "type": "array",
+          "description": "List of core skills"
+        },
+        "experiences": {
+          "type": "array",
+          "description": "List of experience timeline objects"
+        },
+        "projects": {
+          "type": "array",
+          "description": "List of robot projects"
+        },
+        "awards": {
+          "type": "array",
+          "description": "List of certification and award timeline objects"
+        }
+      },
+      "required": [
+        "heroTitle",
+        "heroHighlight",
+        "heroSubtitle",
+        "heroParagraph",
+        "heroQuote",
+        "githubUrl",
+        "email",
+        "skills",
+        "experiences",
+        "projects",
+        "awards"
+      ]
+    }
+  },
+  "firestore": {
+    "/portfolios/{portfolioId}": {
+      "schema": "Portfolio",
+      "description": "Portfolio store index path holding unified developer details."
+    }
+  }
+}

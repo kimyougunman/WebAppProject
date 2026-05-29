@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validate if the data elements in portfolio match requirements
+    function isValidPortfolio(data) {
+      return data.heroTitle is string && data.heroTitle.size() <= 200
+        && data.heroHighlight is string && data.heroHighlight.size() <= 100
+        && data.heroSubtitle is string && data.heroSubtitle.size() <= 200
+        && data.heroParagraph is string && data.heroParagraph.size() <= 1000
+        && data.heroQuote is string && data.heroQuote.size() <= 500
+        && data.githubUrl is string && data.githubUrl.size() <= 200
+        && data.email is string && data.email.size() <= 200
+        && data.skills is list && data.skills.size() <= 50
+        && data.experiences is list && data.experiences.size() <= 50
+        && data.projects is list && data.projects.size() <= 50
+        && data.awards is list && data.awards.size() <= 50;
+    }
+
+    match /portfolios/{portfolioId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidPortfolio(incoming());
+      allow update: if isSignedIn() && isValidPortfolio(incoming());
+      allow delete: if isSignedIn();
+    }
+  }
+}
