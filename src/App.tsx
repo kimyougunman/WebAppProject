@@ -99,6 +99,17 @@ export default function App() {
   const [jsonInputText, setJsonInputText] = useState('');
   const [jsonError, setJsonError] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   // Sync theme with localStorage
   useEffect(() => {
@@ -437,11 +448,14 @@ export default function App() {
 
   // Edit Mode Save / Cancel
   const handleSaveEdits = async () => {
-    try {
-      // Optimistically and immediately save state and local storage
-      setPortfolioData(tempPortfolioData);
-      localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
+    // Optimistically and immediately save state and local storage
+    setPortfolioData(tempPortfolioData);
+    localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
+    
+    // Instantly exit edit mode so the UI goes back to preview mode without freeze or delay
+    setIsEditMode(false);
 
+    try {
       if (isFirebaseConfigured && db) {
         // 1. About section
         const aboutRef = doc(db, 'about', 'main');
@@ -536,15 +550,15 @@ export default function App() {
         }
 
         console.log('Firebase cloud synced successfully');
+        setToastMessage({ text: '💾 저장 완료! 클라우드 동기화 성공 (Saved & Cloud Synced)', type: 'success' });
       } else {
         console.log('Saved to local storage only.');
+        setToastMessage({ text: '💾 저장 완료! 로컬 브라우저에 저장되었습니다 (Saved Locally)', type: 'success' });
       }
-      setIsEditMode(false);
     } catch (err) {
-      alert('로컬에 임시 저장되었습니다 (정식 클라우드 동기화 실패): ' + (err instanceof Error ? err.message : String(err)));
       console.warn('Firebase sync failure:', err);
-      // Still close edit mode as changes are safely persisted in local state & localStorage!
-      setIsEditMode(false);
+      // Let user know that although Firebase failed, their edit is saved locally!
+      setToastMessage({ text: '💾 로컬 저장 완료! (클라우드 동기화 실패)', type: 'info' });
     }
   };
 
@@ -771,6 +785,15 @@ export default function App() {
 
   return (
     <div className={`relative min-h-[100dvh] w-full transition-colors duration-300 ${isLightMode ? 'light-theme bg-[#edf2f7]' : 'bg-[#070b13]'}`}>
+      
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[150] flex items-center gap-2.5 px-4.5 py-3.5 bg-[#0a0f1d]/95 border-2 border-brand-accent/80 rounded-xl shadow-[0_0_30px_rgba(0,219,231,0.35)] font-mono text-xs select-none animate-bounce-short">
+          <div className={`w-2.5 h-2.5 rounded-full ${toastMessage.type === 'success' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]' : toastMessage.type === 'error' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]' : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]'}`}></div>
+          <span className="text-text-primary text-xs font-semibold tracking-wide">{toastMessage.text}</span>
+          <button onClick={() => setToastMessage(null)} className="ml-2.5 hover:text-brand-accent text-text-secondary cursor-pointer text-base font-bold">×</button>
+        </div>
+      )}
       
       {/* Top Prototype Metadata Controller Interface */}
       <div className="w-full bg-[#0a0f1d] border-b border-brand-accent/15 px-4 py-2 flex flex-wrap items-center justify-between text-xs font-mono text-text-secondary select-none relative z-50 gap-2">
@@ -1106,6 +1129,21 @@ export default function App() {
                 >
                   {isSignUpMode ? '이미 계정이 있나요? 로그인하기' : '가입된 관리자가 없나요? 신규 가입하기'}
                 </button>
+
+                <div className="border-t border-brand-accent/15 mt-3 pt-3 flex flex-col items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLoginModalOpen(false);
+                      setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+                      setIsEditMode(true);
+                      setToastMessage({ text: '💡 오프라인/로컬 편집 모드로 시작합니다 (로컬 저장 가능)', type: 'info' });
+                    }}
+                    className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 border border-amber-500/30 text-amber-300 rounded-lg text-[11px] cursor-pointer text-center font-bold tracking-tight transition-all"
+                  >
+                    로그인 없이 로컬 편집 모드로 계속 (Continue Offline)
+                  </button>
+                </div>
               </div>
             </form>
           </div>
