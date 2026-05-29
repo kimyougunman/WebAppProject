@@ -2,16 +2,31 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import firebaseAppletConfig from '../firebase-applet-config.json';
 
-const metaEnv = (import.meta as any).env || {};
+const configApiKey = import.meta.env.VITE_FIREBASE_API_KEY || firebaseAppletConfig.apiKey;
+const configAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseAppletConfig.authDomain;
+const configProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseAppletConfig.projectId;
+const configStorageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseAppletConfig.storageBucket;
+const configMessagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseAppletConfig.messagingSenderId;
+const configAppId = import.meta.env.VITE_FIREBASE_APP_ID || firebaseAppletConfig.appId;
+
+export const missingFirebaseKeys = [
+  !configApiKey && 'VITE_FIREBASE_API_KEY',
+  !configAuthDomain && 'VITE_FIREBASE_AUTH_DOMAIN',
+  !configProjectId && 'VITE_FIREBASE_PROJECT_ID',
+  !configStorageBucket && 'VITE_FIREBASE_STORAGE_BUCKET',
+  !configMessagingSenderId && 'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  !configAppId && 'VITE_FIREBASE_APP_ID'
+].filter((k): k is string => !!k);
 
 const firebaseConfig = {
-  apiKey: metaEnv.VITE_FIREBASE_API_KEY,
-  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: metaEnv.VITE_FIREBASE_APP_ID,
+  apiKey: configApiKey,
+  authDomain: configAuthDomain,
+  projectId: configProjectId,
+  storageBucket: configStorageBucket,
+  messagingSenderId: configMessagingSenderId,
+  appId: configAppId,
 };
 
 export const isFirebaseConfigured = !!(
@@ -19,10 +34,11 @@ export const isFirebaseConfigured = !!(
   firebaseConfig.projectId
 );
 
-let firebaseApp;
-let firestoreDb;
-let fireSecurityAuth;
-let firebaseStorage;
+let firebaseApp: any = null;
+let firestoreDb: any = null;
+let fireSecurityAuth: any = null;
+let firebaseStorage: any = null;
+let initError: Error | null = null;
 
 try {
   if (isFirebaseConfigured) {
@@ -43,16 +59,18 @@ try {
     };
     testConnection();
   } else {
-    console.warn("Firebase is not fully configured, falling back to local simulation mode.");
+    console.error("Firebase is not fully configured. Cloud synchronization is unavailable.");
   }
 } catch (err) {
   console.error("Failed to initialize Firebase SDK:", err);
+  initError = err instanceof Error ? err : new Error(String(err));
 }
 
 export const app = firebaseApp;
 export const db = firestoreDb;
 export const auth = fireSecurityAuth;
 export const storage = firebaseStorage;
+export const firebaseInitError = initError;
 
 export enum OperationType {
   CREATE = 'create',

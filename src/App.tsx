@@ -4,7 +4,16 @@ import MobilePortfolio from './components/MobilePortfolio';
 import DesktopPortfolio from './components/DesktopPortfolio';
 import { Screen, TransitionDirection, PortfolioData, Project, ExperienceLog, AwardItem } from './types';
 import { DEFAULT_PORTFOLIO_DATA } from './data';
-import { isFirebaseConfigured, db, auth, storage, OperationType, handleFirestoreError } from './firebase';
+import { 
+  isFirebaseConfigured, 
+  db, 
+  auth, 
+  storage, 
+  OperationType, 
+  handleFirestoreError,
+  missingFirebaseKeys,
+  firebaseInitError
+} from './firebase';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -135,11 +144,21 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Synchronize Firestore/Local Storage data
+  // Synchronize Firestore data (Exclusive Primary Storage)
   useEffect(() => {
+    // Attempt cache loads first as temporary offline representation
+    const saved = localStorage.getItem('robot_portfolio_data');
+    if (saved) {
+      try {
+        setPortfolioData(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed parsing offline cache', e);
+      }
+    }
+
     if (isFirebaseConfigured && db) {
       setDbLoading(true);
-      console.log('Firestore connected');
+      console.log('Firebase initializing connection...');
 
       const loadedSections = {
         about: false,
@@ -158,7 +177,7 @@ export default function App() {
           loadedSections.portfolios
         ) {
           setDbLoading(false);
-          console.log('Data synced');
+          console.log('Firebase databases successfully synchronized.');
         }
       };
 
@@ -167,8 +186,8 @@ export default function App() {
       const unsubAbout = onSnapshot(aboutRef, (snapshot) => {
         if (snapshot.exists()) {
           const d = snapshot.data();
-          setPortfolioData(prev => ({
-            ...prev,
+          const updated = {
+            ...DEFAULT_PORTFOLIO_DATA,
             heroTitle: d.heroTitle || DEFAULT_PORTFOLIO_DATA.heroTitle,
             heroHighlight: d.heroHighlight || DEFAULT_PORTFOLIO_DATA.heroHighlight,
             heroSubtitle: d.heroSubtitle || DEFAULT_PORTFOLIO_DATA.heroSubtitle,
@@ -176,7 +195,12 @@ export default function App() {
             heroQuote: d.heroQuote || DEFAULT_PORTFOLIO_DATA.heroQuote,
             githubUrl: d.githubUrl || DEFAULT_PORTFOLIO_DATA.githubUrl,
             email: d.email || DEFAULT_PORTFOLIO_DATA.email,
+          };
+          setPortfolioData(prev => ({
+            ...prev,
+            ...updated
           }));
+          localStorage.setItem('robot_portfolio_data', JSON.stringify({ ...portfolioData, ...updated }));
         } else {
           // Document empty in firestore, initialize with default content
           setDoc(aboutRef, {
@@ -202,7 +226,11 @@ export default function App() {
         if (!snapshot.empty) {
           const list = snapshot.docs.map(docSnap => docSnap.data() as ExperienceLog & { order: number });
           list.sort((a, b) => a.order - b.order);
-          setPortfolioData(prev => ({ ...prev, experiences: list }));
+          setPortfolioData(prev => {
+            const updated = { ...prev, experiences: list };
+            localStorage.setItem('robot_portfolio_data', JSON.stringify(updated));
+            return updated;
+          });
         } else {
           // Populate experiences with defaults
           DEFAULT_PORTFOLIO_DATA.experiences.forEach((exp, idx) => {
@@ -224,7 +252,11 @@ export default function App() {
         if (!snapshot.empty) {
           const list = snapshot.docs.map(docSnap => docSnap.data() as { id: string, name: string, order: number });
           list.sort((a, b) => a.order - b.order);
-          setPortfolioData(prev => ({ ...prev, skills: list.map(s => s.name) }));
+          setPortfolioData(prev => {
+            const updated = { ...prev, skills: list.map(s => s.name) };
+            localStorage.setItem('robot_portfolio_data', JSON.stringify(updated));
+            return updated;
+          });
         } else {
           // Populate skills with defaults
           DEFAULT_PORTFOLIO_DATA.skills.forEach((skill, idx) => {
@@ -248,7 +280,11 @@ export default function App() {
         if (!snapshot.empty) {
           const list = snapshot.docs.map(docSnap => docSnap.data() as AwardItem & { order: number });
           list.sort((a, b) => a.order - b.order);
-          setPortfolioData(prev => ({ ...prev, awards: list }));
+          setPortfolioData(prev => {
+            const updated = { ...prev, awards: list };
+            localStorage.setItem('robot_portfolio_data', JSON.stringify(updated));
+            return updated;
+          });
         } else {
           // Populate awards
           DEFAULT_PORTFOLIO_DATA.awards.forEach((award, idx) => {
@@ -280,7 +316,11 @@ export default function App() {
             } as Project & { order: number };
           });
           list.sort((a, b) => a.order - b.order);
-          setPortfolioData(prev => ({ ...prev, projects: list }));
+          setPortfolioData(prev => {
+            const updated = { ...prev, projects: list };
+            localStorage.setItem('robot_portfolio_data', JSON.stringify(updated));
+            return updated;
+          });
         } else {
           // Populate portfolio documents
           DEFAULT_PORTFOLIO_DATA.projects.forEach((proj, idx) => {
@@ -308,17 +348,6 @@ export default function App() {
         unsubPort();
       };
     } else {
-      // Local fallback
-      const saved = localStorage.getItem('robot_portfolio_data');
-      if (saved) {
-        try {
-          setPortfolioData(JSON.parse(saved));
-        } catch (e) {
-          console.error('Failed parsing local data fallback', e);
-        }
-      } else {
-        setPortfolioData(DEFAULT_PORTFOLIO_DATA);
-      }
       setDbLoading(false);
     }
   }, []);
@@ -342,27 +371,19 @@ export default function App() {
 
   // Edit Mode Toggle
   const handleStartEditing = () => {
-    if (isFirebaseConfigured) {
-      if (currentUser) {
-        setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
-        setIsEditMode(true);
-      } else {
-        setLoginEmail('');
-        setLoginPassword('');
-        setLoginError('');
-        setIsSignUpMode(false);
-        setIsLoginModalOpen(true);
-      }
+    if (!isFirebaseConfigured || !auth) {
+      alert('Firebase가 올바르게 구성되지 않았습니다. 실시간 클라우드 DB 연동(VITE_FIREBASE_*) 설정이 필요합니다.');
+      return;
+    }
+    if (currentUser) {
+      setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+      setIsEditMode(true);
     } else {
-      // Offline simulation password flow
-      if (storedPassword) {
-        setPasswordInput('');
-        setPasswordError('');
-        setIsPasswordModalOpen(true);
-      } else {
-        setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
-        setIsEditMode(true);
-      }
+      setLoginEmail('');
+      setLoginPassword('');
+      setLoginError('');
+      setIsSignUpMode(false);
+      setIsLoginModalOpen(true);
     }
   };
 
@@ -510,8 +531,7 @@ export default function App() {
 
         console.log('Save success');
       } else {
-        setPortfolioData(tempPortfolioData);
-        localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
+        throw new Error('Firebase가 활성화되거나 구성되지 않았습니다. 실시간 클라우드 DB 저장이 불가능합니다.');
       }
       setIsEditMode(false);
     } catch (err) {
@@ -686,19 +706,7 @@ export default function App() {
       const url = await getDownloadURL(snapshot.ref);
       return url;
     } else {
-      // Local fallback - read file as base64 string
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-          } else {
-            reject(new Error('FileReader returned non-string result'));
-          }
-        };
-        reader.onerror = () => reject(new Error('FileReader failed'));
-        reader.readAsDataURL(file);
-      });
+      throw new Error('Firebase Storage가 구성되지 않았습니다. 이미지를 업로드하려면 Firebase 구성을 완료해 주세요.');
     }
   };
 
@@ -807,18 +815,9 @@ export default function App() {
               </span>
             )
           ) : (
-            /* Legacy Lock Toggle if Firebase is offline */
-            <button
-              onClick={() => {
-                setNewPasswordValue(storedPassword);
-                setIsSettingPassword(true);
-              }}
-              className={`p-1 px-2.5 rounded border text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors ${storedPassword ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' : 'bg-white/5 border-white/10 text-text-secondary/70'}`}
-              title="관리자 비밀번호 기반 편집 방지 잠금 설정"
-            >
-              {storedPassword ? <Lock className="w-3.5 h-3.5 text-emerald-400" /> : <Unlock className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{storedPassword ? 'Admin Lock: On' : 'Set Admin Lock'}</span>
-            </button>
+            <span className="px-2 py-1 text-[10px] text-amber-400/90 font-mono border border-amber-500/15 bg-amber-500/5 rounded">
+              Firebase Inactive ❌
+            </span>
           )}
 
           {/* Backup / Export Import */}
@@ -842,6 +841,46 @@ export default function App() {
         </div>
       </div>
 
+      {/* Firebase Configuration Diagnostics */}
+      {(!isFirebaseConfigured || firebaseInitError) && (
+        <div id="firebase-diagnostic-banner" className="mx-auto max-w-[1280px] w-full px-5 pt-3 relative z-10 select-text">
+          <div className="bg-amber-500/5 border border-amber-500/25 rounded-xl px-4 py-3.5 text-xs text-text-secondary/90 space-y-2">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0 animate-pulse" />
+              <div className="space-y-1 w-full">
+                <span className="font-bold text-amber-400 text-sm">Firebase 클라우드 연동 필요 (Firebase Configuration Required)</span>
+                <p className="leading-relaxed text-[#b9cacb] dark:text-text-secondary">
+                  현재 실제 Firebase 클라우드 연결 인프라가 감지되지 않았습니다. 데이터를 실시간 클라우드에 영구 저장하고 다른 기기 및 모바일에서도 동기화하려면 다음 구성 요소를 체크해 주세요.
+                </p>
+                
+                {missingFirebaseKeys.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500/80 font-mono block">누락된 환경 변수 (.env / AI Studio Secrets Panels):</span>
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {missingFirebaseKeys.map(key => (
+                        <span key={key} className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-mono text-[10px] text-amber-400 select-all">
+                          {key}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {firebaseInitError && (
+                  <div className="mt-2 bg-red-950/20 border border-red-500/20 rounded p-2 text-[11px] font-mono text-red-300">
+                    <span className="font-bold">Initialization Exception:</span> {firebaseInitError.message || String(firebaseInitError)}
+                  </div>
+                )}
+                
+                <p className="text-[10px] text-text-secondary/50 font-sans leading-relaxed pt-1">
+                  💡 <strong>비활성화 영향:</strong> Firebase 구성 정보가 입력되어야 실제 Firestore 및 Storage 동기화가 기동되며, 임시 로컬 캐시에서 벗어나 서버리스 클라우드 본선 서비스로 이관 완료됩니다.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Screen Navigation Guide Overlay */}
       {showHelperInfo && (
         <div className="mx-auto max-w-[1280px] w-full px-5 pt-3 select-none relative z-10 w-full">
@@ -852,8 +891,8 @@ export default function App() {
                 <span className="font-bold text-text-primary">Interactive Editing Guide:</span>
                 <p className="leading-relaxed text-[#b9cacb] dark:text-text-secondary">
                   • 우측 하단의 <strong className="text-brand-accent uppercase">"Edit Mode"</strong> 플로팅 단추를 누르면 포트폴리오를 대시보드처럼 자율 편집하고 관리할 수 있습니다.<br />
-                  • {isFirebaseConfigured ? <span className="font-semibold text-emerald-400">Firebase 실시간 동기화가 설정되었습니다! 클라우드에 즉시 저장되고 새로고침에도 보존됩니다.</span> : '현재는 로컬 브라우저 세션 모드입니다. 우수작용을 원할히 테스트할 수 있으며, 이 데이터는 localStorage에 반영 보존됩니다.'}<br />
-                  • 프로젝트 카드 이미지 영역은 드래그 드롭 또는 파일 업로드를 지원하며 {isFirebaseConfigured ? 'Firebase Storage 클라우드에 안전하게 보관됩니다.' : 'Base64 인코딩 주소로 로컬 저장됩니다.'}<br />
+                  • {isFirebaseConfigured ? <span className="font-semibold text-emerald-400">Firebase 실시간 동기화가 완전히 가동 중입니다! 즉시 클라우드에 반영되고 새로고침이나 타 기기에서도 유지됩니다.</span> : <span className="font-semibold text-amber-400">현재는 로컬 캐시 읽기전용 보기 모드입니다. 수정 사항 저장을 위해 Firebase 연동을 권장합니다.</span>}<br />
+                  • 프로젝트 카드 이미지 영역은 드래그 드롭 또는 파일 업로드를 지원하며 {isFirebaseConfigured ? 'Firebase Storage 클라우드에 안전하게 보관됩니다.' : 'Firebase 연동 완료 시 Storage 업로드가 활성화됩니다.'}<br />
                 </p>
               </div>
             </div>
