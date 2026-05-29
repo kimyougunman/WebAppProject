@@ -1,9 +1,9 @@
 {
-  "apiKey": "",
-  "authDomain": "",
-  "projectId": "",
-  "storageBucket": "",
-  "messagingSenderId": "",
-  "appId": "",
+  "apiKey": "AIzaSyBM9rSc6aKstmrd8iOBkxdqgujUGW6dmJM",
+  "authDomain": "webappproject-3a7a5.firebaseapp.com",
+  "projectId": "webappproject-3a7a5",
+  "storageBucket": "webappproject-3a7a5.firebasestorage.app",
+  "messagingSenderId": "233971073185",
+  "appId": "1:233971073185:web:b7554f67bfbcf7eac030e0",
   "firestoreDatabaseId": ""
 }
