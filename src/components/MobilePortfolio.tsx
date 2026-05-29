@@ -297,7 +297,7 @@ export default function MobilePortfolio({
               onClick={() => handleNavigateToDesktop()}
               className="bg-brand-accent text-[#002022] w-full px-5 py-3 font-semibold rounded-lg glow-blue hover:opacity-90 active:scale-95 transition-all text-xs cursor-pointer select-none"
             >
-              View Desktop Systems
+              View Systems
             </button>
           </div>
         </section>
@@ -326,7 +326,7 @@ export default function MobilePortfolio({
           </div>
 
           <div className="grid grid-cols-1 gap-5">
-            {current.projects.slice(0, 3).map((project, pIdx) => (
+            {current.projects.map((project, pIdx) => (
               <div 
                 key={project.id} 
                 className={`glass-card rounded-xl overflow-hidden group relative ${isEditMode ? 'edit-glow-outline bg-[#0c101d]' : ''}`}
@@ -472,7 +472,7 @@ export default function MobilePortfolio({
           </div>
           
           <div className="space-y-6 border-l border-brand-accent/20 ml-1.5 pl-4 relative">
-            {current.experiences.slice(0, 3).map((exp, expIdx) => (
+            {current.experiences.map((exp, expIdx) => (
               <div key={exp.id} className={`relative p-1.5 rounded-lg ${isEditMode ? 'edit-glow-outline bg-[#101423]/60' : ''}`}>
                 <div className="absolute -left-[23px] top-3 w-2.5 h-2.5 rounded-full bg-brand-accent shadow-[0_0_10px_#00dbe7]"></div>
                 

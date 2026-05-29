@@ -1,74 +1,95 @@
 {
   "entities": {
-    "Portfolio": {
-      "title": "Portfolio",
-      "description": "Unified portfolio representation including hero text, skills, experiences, and project lists.",
+    "About": {
+      "title": "About",
+      "description": "About hero texts and social contact info",
       "type": "object",
       "properties": {
-        "heroTitle": {
-          "type": "string",
-          "description": "Hero title"
-        },
-        "heroHighlight": {
-          "type": "string",
-          "description": "Highlight text for hero"
-        },
-        "heroSubtitle": {
-          "type": "string",
-          "description": "Hero subtitle"
-        },
-        "heroParagraph": {
-          "type": "string",
-          "description": "Detailed description in hero section"
-        },
-        "heroQuote": {
-          "type": "string",
-          "description": "Focus quote statement"
-        },
-        "githubUrl": {
-          "type": "string",
-          "description": "GitHub public link"
-        },
-        "email": {
-          "type": "string",
-          "description": "Contact email"
-        },
-        "skills": {
-          "type": "array",
-          "description": "List of core skills"
-        },
-        "experiences": {
-          "type": "array",
-          "description": "List of experience timeline objects"
-        },
-        "projects": {
-          "type": "array",
-          "description": "List of robot projects"
-        },
-        "awards": {
-          "type": "array",
-          "description": "List of certification and award timeline objects"
-        }
+        "heroTitle": { "type": "string", "description": "Hero title first line" },
+        "heroHighlight": { "type": "string", "description": "Hero highlight text" },
+        "heroSubtitle": { "type": "string", "description": "Hero subtitle text" },
+        "heroParagraph": { "type": "string", "description": "About descriptions" },
+        "heroQuote": { "type": "string", "description": "Quotes segment text" },
+        "githubUrl": { "type": "string", "description": "GitHub public profile link" },
+        "email": { "type": "string", "description": "Contact email address" }
       },
-      "required": [
-        "heroTitle",
-        "heroHighlight",
-        "heroSubtitle",
-        "heroParagraph",
-        "heroQuote",
-        "githubUrl",
-        "email",
-        "skills",
-        "experiences",
-        "projects",
-        "awards"
-      ]
+      "required": ["heroTitle", "heroHighlight", "heroSubtitle", "heroParagraph", "heroQuote", "githubUrl", "email"]
+    },
+    "Experience": {
+      "title": "Experience",
+      "description": "Work and academic robotics experience",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Experience unique ID" },
+        "year": { "type": "string", "description": "Year of operation e.g. 2026" },
+        "period": { "type": "string", "description": "Timeline details e.g. 2026.02" },
+        "role": { "type": "string", "description": "Role performed in teamwork" },
+        "organization": { "type": "string", "description": "Full organization name" },
+        "details": { "type": "array", "description": "Bullet list of activities" },
+        "iconName": { "type": "string", "description": "Lucide icon reference" },
+        "order": { "type": "integer", "description": "Custom display sort order" }
+      },
+      "required": ["id", "year", "period", "role", "organization", "details", "iconName", "order"]
+    },
+    "Skill": {
+      "title": "Skill",
+      "description": "A developer skill",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Skill unique ID" },
+        "name": { "type": "string", "description": "The exact name of skill" },
+        "order": { "type": "integer", "description": "Custom display sort order" }
+      },
+      "required": ["id", "name", "order"]
+    },
+    "Award": {
+      "title": "Award",
+      "description": "An award or certificate details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Award unique ID" },
+        "title": { "type": "string", "description": "Award/competition title details" },
+        "award": { "type": "string", "description": "Award performance degree e.g. 1st Place" },
+        "iconName": { "type": "string", "description": "Lucide icon index" },
+        "order": { "type": "integer", "description": "Display order index" }
+      },
+      "required": ["id", "title", "award", "iconName", "order"]
+    },
+    "Portfolio": {
+      "title": "Portfolio",
+      "description": "Robot development portfolio/project document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Portfolio unique ID" },
+        "title": { "type": "string", "description": "Deployment project title" },
+        "description": { "type": "string", "description": "Core descriptive details" },
+        "technologies": { "type": "array", "description": "List of tech tags utilized" },
+        "imageUrl": { "type": "string", "description": "Cloud hosting or base64 visual URL" },
+        "order": { "type": "integer", "description": "Sequence sort order" }
+      },
+      "required": ["id", "title", "description", "technologies", "imageUrl", "order"]
     }
   },
   "firestore": {
+    "/about/{aboutId}": {
+      "schema": "About",
+      "description": "About information store with hero content"
+    },
+    "/experiences/{experienceId}": {
+      "schema": "Experience",
+      "description": "Active experience timelines"
+    },
+    "/skills/{skillId}": {
+      "schema": "Skill",
+      "description": "Developer core skills metrics"
+    },
+    "/awards/{awardId}": {
+      "schema": "Award",
+      "description": "Certifications and awards"
+    },
     "/portfolios/{portfolioId}": {
       "schema": "Portfolio",
-      "description": "Portfolio store index path holding unified developer details."
+      "description": "Robot project portfolio profiles"
     }
   }
 }

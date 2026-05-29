@@ -12,10 +12,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
     function incoming() {
       return request.resource.data;
     }
@@ -24,25 +20,82 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // Validate if the data elements in portfolio match requirements
-    function isValidPortfolio(data) {
+    // Validate if the data elements in About match requirements
+    function isValidAbout(data) {
       return data.heroTitle is string && data.heroTitle.size() <= 200
         && data.heroHighlight is string && data.heroHighlight.size() <= 100
         && data.heroSubtitle is string && data.heroSubtitle.size() <= 200
         && data.heroParagraph is string && data.heroParagraph.size() <= 1000
         && data.heroQuote is string && data.heroQuote.size() <= 500
         && data.githubUrl is string && data.githubUrl.size() <= 200
-        && data.email is string && data.email.size() <= 200
-        && data.skills is list && data.skills.size() <= 50
-        && data.experiences is list && data.experiences.size() <= 50
-        && data.projects is list && data.projects.size() <= 50
-        && data.awards is list && data.awards.size() <= 50;
+        && data.email is string && data.email.size() <= 200;
+    }
+
+    // Validate if the data elements in Experience match requirements
+    function isValidExperience(data) {
+      return data.id is string && data.id.size() <= 100
+        && data.year is string && data.year.size() <= 50
+        && data.period is string && data.period.size() <= 50
+        && data.role is string && data.role.size() <= 200
+        && data.organization is string && data.organization.size() <= 200
+        && data.details is list && data.details.size() <= 20
+        && data.iconName is string && data.iconName.size() <= 100
+        && data.order is int;
+    }
+
+    // Validate if the data elements in Skill match requirements
+    function isValidSkill(data) {
+      return data.id is string && data.id.size() <= 100
+        && data.name is string && data.name.size() <= 200
+        && data.order is int;
+    }
+
+    // Validate if the data elements in Award match requirements
+    function isValidAward(data) {
+      return data.id is string && data.id.size() <= 100
+        && data.title is string && data.title.size() <= 200
+        && data.award is string && data.award.size() <= 200
+        && data.iconName is string && data.iconName.size() <= 100
+        && data.order is int;
+    }
+
+    // Validate if the data elements in Portfolio match requirements
+    function isValidPortfolio(data) {
+      return data.id is string && data.id.size() <= 100
+        && data.title is string && data.title.size() <= 200
+        && data.description is string && data.description.size() <= 1000
+        && data.technologies is list && data.technologies.size() <= 20
+        && data.imageUrl is string && data.imageUrl.size() <= 3000
+        && data.order is int;
+    }
+
+    match /about/{aboutId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && isValidAbout(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /experiences/{experienceId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && isValidExperience(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /skills/{skillId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && isValidSkill(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /awards/{awardId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && isValidAward(incoming());
+      allow delete: if isSignedIn();
     }
 
     match /portfolios/{portfolioId} {
       allow read: if true;
-      allow create: if isSignedIn() && isValidPortfolio(incoming());
-      allow update: if isSignedIn() && isValidPortfolio(incoming());
+      allow create, update: if isSignedIn() && isValidPortfolio(incoming());
       allow delete: if isSignedIn();
     }
   }

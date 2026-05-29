@@ -4,7 +4,7 @@ import MobilePortfolio from './components/MobilePortfolio';
 import DesktopPortfolio from './components/DesktopPortfolio';
 import { Screen, TransitionDirection, PortfolioData, Project, ExperienceLog, AwardItem } from './types';
 import { DEFAULT_PORTFOLIO_DATA } from './data';
-import { isFirebaseConfigured, db, auth, storage } from './firebase';
+import { isFirebaseConfigured, db, auth, storage, OperationType, handleFirestoreError } from './firebase';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -15,7 +15,10 @@ import {
 import { 
   doc, 
   onSnapshot, 
-  setDoc 
+  setDoc,
+  collection,
+  getDocs,
+  deleteDoc
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -41,44 +44,6 @@ import {
   Check,
   LogOut
 } from 'lucide-react';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth?.currentUser?.uid,
-      email: auth?.currentUser?.email,
-      emailVerified: auth?.currentUser?.emailVerified,
-      isAnonymous: auth?.currentUser?.isAnonymous,
-      tenantId: auth?.currentUser?.tenantId,
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error details: ', JSON.stringify(errInfo));
-}
 
 export default function App() {
   // Navigation Screens
@@ -156,26 +121,192 @@ export default function App() {
     }),
   };
 
+  // Automated Responsive detection
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setScreen('desktop');
+      } else {
+        setScreen('mobile');
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Synchronize Firestore/Local Storage data
   useEffect(() => {
     if (isFirebaseConfigured && db) {
       setDbLoading(true);
-      const docRef = doc(db, 'portfolios', 'main');
-      const unsubscribe = onSnapshot(docRef, (snapshot) => {
+      console.log('Firestore connected');
+
+      const loadedSections = {
+        about: false,
+        experiences: false,
+        skills: false,
+        awards: false,
+        portfolios: false,
+      };
+
+      const checkAllLoaded = () => {
+        if (
+          loadedSections.about &&
+          loadedSections.experiences &&
+          loadedSections.skills &&
+          loadedSections.awards &&
+          loadedSections.portfolios
+        ) {
+          setDbLoading(false);
+          console.log('Data synced');
+        }
+      };
+
+      // 1. About section
+      const aboutRef = doc(db, 'about', 'main');
+      const unsubAbout = onSnapshot(aboutRef, (snapshot) => {
         if (snapshot.exists()) {
-          setPortfolioData(snapshot.data() as PortfolioData);
+          const d = snapshot.data();
+          setPortfolioData(prev => ({
+            ...prev,
+            heroTitle: d.heroTitle || DEFAULT_PORTFOLIO_DATA.heroTitle,
+            heroHighlight: d.heroHighlight || DEFAULT_PORTFOLIO_DATA.heroHighlight,
+            heroSubtitle: d.heroSubtitle || DEFAULT_PORTFOLIO_DATA.heroSubtitle,
+            heroParagraph: d.heroParagraph || DEFAULT_PORTFOLIO_DATA.heroParagraph,
+            heroQuote: d.heroQuote || DEFAULT_PORTFOLIO_DATA.heroQuote,
+            githubUrl: d.githubUrl || DEFAULT_PORTFOLIO_DATA.githubUrl,
+            email: d.email || DEFAULT_PORTFOLIO_DATA.email,
+          }));
         } else {
           // Document empty in firestore, initialize with default content
-          setDoc(docRef, DEFAULT_PORTFOLIO_DATA)
-            .catch(err => handleFirestoreError(err, OperationType.WRITE, 'portfolios/main'));
-          setPortfolioData(DEFAULT_PORTFOLIO_DATA);
+          setDoc(aboutRef, {
+            heroTitle: DEFAULT_PORTFOLIO_DATA.heroTitle,
+            heroHighlight: DEFAULT_PORTFOLIO_DATA.heroHighlight,
+            heroSubtitle: DEFAULT_PORTFOLIO_DATA.heroSubtitle,
+            heroParagraph: DEFAULT_PORTFOLIO_DATA.heroParagraph,
+            heroQuote: DEFAULT_PORTFOLIO_DATA.heroQuote,
+            githubUrl: DEFAULT_PORTFOLIO_DATA.githubUrl,
+            email: DEFAULT_PORTFOLIO_DATA.email,
+          }).catch(err => handleFirestoreError(err, OperationType.WRITE, 'about/main'));
         }
-        setDbLoading(false);
+        loadedSections.about = true;
+        checkAllLoaded();
       }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'portfolios/main');
+        handleFirestoreError(error, OperationType.GET, 'about/main');
         setDbLoading(false);
       });
-      return () => unsubscribe();
+
+      // 2. Experiences Collection
+      const expColRef = collection(db, 'experiences');
+      const unsubExp = onSnapshot(expColRef, (snapshot) => {
+        if (!snapshot.empty) {
+          const list = snapshot.docs.map(docSnap => docSnap.data() as ExperienceLog & { order: number });
+          list.sort((a, b) => a.order - b.order);
+          setPortfolioData(prev => ({ ...prev, experiences: list }));
+        } else {
+          // Populate experiences with defaults
+          DEFAULT_PORTFOLIO_DATA.experiences.forEach((exp, idx) => {
+            setDoc(doc(db, 'experiences', exp.id), {
+              ...exp,
+              order: idx
+            }).catch(err => handleFirestoreError(err, OperationType.WRITE, `experiences/${exp.id}`));
+          });
+        }
+        loadedSections.experiences = true;
+        checkAllLoaded();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'experiences');
+      });
+
+      // 3. Skills Collection
+      const skillsColRef = collection(db, 'skills');
+      const unsubSkills = onSnapshot(skillsColRef, (snapshot) => {
+        if (!snapshot.empty) {
+          const list = snapshot.docs.map(docSnap => docSnap.data() as { id: string, name: string, order: number });
+          list.sort((a, b) => a.order - b.order);
+          setPortfolioData(prev => ({ ...prev, skills: list.map(s => s.name) }));
+        } else {
+          // Populate skills with defaults
+          DEFAULT_PORTFOLIO_DATA.skills.forEach((skill, idx) => {
+            const skillId = `s_${idx}`;
+            setDoc(doc(db, 'skills', skillId), {
+              id: skillId,
+              name: skill,
+              order: idx
+            }).catch(err => handleFirestoreError(err, OperationType.WRITE, `skills/${skillId}`));
+          });
+        }
+        loadedSections.skills = true;
+        checkAllLoaded();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'skills');
+      });
+
+      // 4. Awards Collection
+      const awardsColRef = collection(db, 'awards');
+      const unsubAwards = onSnapshot(awardsColRef, (snapshot) => {
+        if (!snapshot.empty) {
+          const list = snapshot.docs.map(docSnap => docSnap.data() as AwardItem & { order: number });
+          list.sort((a, b) => a.order - b.order);
+          setPortfolioData(prev => ({ ...prev, awards: list }));
+        } else {
+          // Populate awards
+          DEFAULT_PORTFOLIO_DATA.awards.forEach((award, idx) => {
+            setDoc(doc(db, 'awards', award.id), {
+              ...award,
+              order: idx
+            }).catch(err => handleFirestoreError(err, OperationType.WRITE, `awards/${award.id}`));
+          });
+        }
+        loadedSections.awards = true;
+        checkAllLoaded();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'awards');
+      });
+
+      // 5. Portfolios Collection (mapping to projects)
+      const portColRef = collection(db, 'portfolios');
+      const unsubPort = onSnapshot(portColRef, (snapshot) => {
+        if (!snapshot.empty) {
+          const list = snapshot.docs.map(docSnap => {
+            const d = docSnap.data();
+            return {
+              id: d.id,
+              title: d.title || '',
+              description: d.description || '',
+              imageUrl: d.imageUrl || '',
+              tags: d.technologies || [],
+              order: d.order || 0
+            } as Project & { order: number };
+          });
+          list.sort((a, b) => a.order - b.order);
+          setPortfolioData(prev => ({ ...prev, projects: list }));
+        } else {
+          // Populate portfolio documents
+          DEFAULT_PORTFOLIO_DATA.projects.forEach((proj, idx) => {
+            setDoc(doc(db, 'portfolios', proj.id), {
+              id: proj.id,
+              title: proj.title,
+              description: proj.description,
+              technologies: proj.tags,
+              imageUrl: proj.imageUrl,
+              order: idx
+            }).catch(err => handleFirestoreError(err, OperationType.WRITE, `portfolios/${proj.id}`));
+          });
+        }
+        loadedSections.portfolios = true;
+        checkAllLoaded();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'portfolios');
+      });
+
+      return () => {
+        unsubAbout();
+        unsubExp();
+        unsubSkills();
+        unsubAwards();
+        unsubPort();
+      };
     } else {
       // Local fallback
       const saved = localStorage.getItem('robot_portfolio_data');
@@ -285,8 +416,99 @@ export default function App() {
   const handleSaveEdits = async () => {
     try {
       if (isFirebaseConfigured && db) {
-        const docRef = doc(db, 'portfolios', 'main');
-        await setDoc(docRef, tempPortfolioData);
+        // 1. About section
+        const aboutRef = doc(db, 'about', 'main');
+        await setDoc(aboutRef, {
+          heroTitle: tempPortfolioData.heroTitle,
+          heroHighlight: tempPortfolioData.heroHighlight,
+          heroSubtitle: tempPortfolioData.heroSubtitle,
+          heroParagraph: tempPortfolioData.heroParagraph,
+          heroQuote: tempPortfolioData.heroQuote,
+          githubUrl: tempPortfolioData.githubUrl,
+          email: tempPortfolioData.email
+        });
+
+        // 2. Experiences collection (with deleting old/removed items)
+        const currentExpIds = tempPortfolioData.experiences.map(e => e.id);
+        for (let i = 0; i < tempPortfolioData.experiences.length; i++) {
+          const item = tempPortfolioData.experiences[i];
+          await setDoc(doc(db, 'experiences', item.id), {
+            id: item.id,
+            year: item.year || '',
+            period: item.period || '',
+            role: item.role || '',
+            organization: item.organization || '',
+            details: item.details || [],
+            iconName: item.iconName || 'wrench',
+            order: i
+          });
+        }
+        const expSnapshot = await getDocs(collection(db, 'experiences'));
+        for (const docSnap of expSnapshot.docs) {
+          if (!currentExpIds.includes(docSnap.id)) {
+            await deleteDoc(doc(db, 'experiences', docSnap.id));
+          }
+        }
+
+        // 3. Skills collection
+        const currentSkillIds: string[] = [];
+        for (let i = 0; i < tempPortfolioData.skills.length; i++) {
+          const name = tempPortfolioData.skills[i];
+          const skillId = `s_${i}`;
+          currentSkillIds.push(skillId);
+          await setDoc(doc(db, 'skills', skillId), {
+            id: skillId,
+            name,
+            order: i
+          });
+        }
+        const skillsSnapshot = await getDocs(collection(db, 'skills'));
+        for (const docSnap of skillsSnapshot.docs) {
+          if (!currentSkillIds.includes(docSnap.id)) {
+            await deleteDoc(doc(db, 'skills', docSnap.id));
+          }
+        }
+
+        // 4. Awards collection
+        const currentAwardIds = tempPortfolioData.awards.map(a => a.id);
+        for (let i = 0; i < tempPortfolioData.awards.length; i++) {
+          const item = tempPortfolioData.awards[i];
+          await setDoc(doc(db, 'awards', item.id), {
+            id: item.id,
+            title: item.title || '',
+            award: item.award || '',
+            iconName: item.iconName || 'trophy',
+            order: i
+          });
+        }
+        const awardsSnapshot = await getDocs(collection(db, 'awards'));
+        for (const docSnap of awardsSnapshot.docs) {
+          if (!currentAwardIds.includes(docSnap.id)) {
+            await deleteDoc(doc(db, 'awards', docSnap.id));
+          }
+        }
+
+        // 5. Portfolios collection (projects)
+        const currentPortIds = tempPortfolioData.projects.map(p => p.id);
+        for (let i = 0; i < tempPortfolioData.projects.length; i++) {
+          const item = tempPortfolioData.projects[i];
+          await setDoc(doc(db, 'portfolios', item.id), {
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            technologies: item.tags || [],
+            imageUrl: item.imageUrl,
+            order: i
+          });
+        }
+        const portfoliosSnapshot = await getDocs(collection(db, 'portfolios'));
+        for (const docSnap of portfoliosSnapshot.docs) {
+          if (!currentPortIds.includes(docSnap.id)) {
+            await deleteDoc(doc(db, 'portfolios', docSnap.id));
+          }
+        }
+
+        console.log('Save success');
       } else {
         setPortfolioData(tempPortfolioData);
         localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
@@ -294,6 +516,8 @@ export default function App() {
       setIsEditMode(false);
     } catch (err) {
       alert('저장 실패 (Save Failed): ' + (err instanceof Error ? err.message : String(err)));
+      console.log('Save failed: ' + err);
+      console.error('[Firestore Write Failure]', err);
     }
   };
 

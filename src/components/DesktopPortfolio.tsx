@@ -396,7 +396,7 @@ export default function DesktopPortfolio({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {current.experiences.slice(0, 3).map((exp, expIdx) => (
+            {current.experiences.map((exp, expIdx) => (
               <div 
                 key={exp.id} 
                 className={`glass-card p-6 rounded-xl flex flex-col justify-between h-[255px] shadow-sm glass-card-hover group relative ${isEditMode ? 'edit-glow-outline bg-[#0e1322]' : ''}`}
@@ -682,7 +682,7 @@ export default function DesktopPortfolio({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {current.projects.slice(0, 6).map((project, pIdx) => (
+            {current.projects.map((project, pIdx) => (
               <div 
                 key={project.id} 
                 className={`glass-card flex flex-col overflow-hidden rounded-xl border border-brand-accent/10 shadow-md group glass-card-hover relative ${isEditMode ? 'edit-glow-outline bg-[#0c101d]' : ''}`}
