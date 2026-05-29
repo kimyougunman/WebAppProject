@@ -21,6 +21,66 @@ body {
   font-family: var(--font-sans);
   overflow-x: hidden;
   scroll-behavior: smooth;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light Theme Variables Overrides */
+.light-theme {
+  --color-surface-bg: #edf2f7;
+  --color-surface-card: rgba(255, 255, 255, 0.9);
+  --color-brand-accent: #0284c7;
+  --color-brand-accent-glow: rgba(2, 132, 199, 0.15);
+  --color-text-primary: #1e293b;
+  --color-text-secondary: #5a6e85;
+}
+
+.light-theme body {
+  background-color: #edf2f7 !important;
+  color: #1e293b !important;
+}
+
+.light-theme .glass-card {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(2, 132, 199, 0.2) !important;
+  box-shadow: 0 4px 18px rgba(2, 132, 199, 0.04) !important;
+}
+
+.light-theme .glass-card-hover:hover {
+  border: 1px solid rgba(2, 132, 199, 0.5) !important;
+  box-shadow: 0 8px 30px rgba(2, 132, 199, 0.12) !important;
+}
+
+.light-theme .grid-bg {
+  background-image: linear-gradient(rgba(2, 132, 199, 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(2, 132, 199, 0.05) 1px, transparent 1px) !important;
+}
+
+.light-theme .scanline {
+  background: linear-gradient(to bottom, transparent, rgba(2, 132, 199, 0.15), transparent) !important;
+}
+
+.light-theme .tech-divider {
+  background: linear-gradient(90deg, transparent, rgba(2, 132, 199, 0.3), transparent) !important;
+}
+
+/* Editing Highlights */
+.edit-glow-outline {
+  outline: 2px dashed #00dbe7;
+  outline-offset: 4px;
+  animation: editPulse 2s infinite alternate;
+}
+
+.light-theme .edit-glow-outline {
+  outline: 2px dashed #0284c7;
+}
+
+@keyframes editPulse {
+  0% {
+    box-shadow: 0 0 4px rgba(0, 219, 231, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 12px rgba(0, 219, 231, 0.4);
+  }
 }
 
 .glass-card {

@@ -32,3 +32,18 @@ export interface AwardItem {
   award: string;
   iconName: string;
 }
+
+export interface PortfolioData {
+  heroTitle: string;
+  heroHighlight: string;
+  heroSubtitle: string;
+  heroParagraph: string;
+  heroQuote: string;
+  githubUrl: string;
+  email: string;
+  skills: string[];
+  awards: AwardItem[];
+  experiences: ExperienceLog[];
+  projects: Project[];
+}
+

@@ -1,4 +1,4 @@
-import { Project, ExperienceLog } from './types';
+import { Project, ExperienceLog, AwardItem, PortfolioData } from './types';
 
 export const PROJECTS: Project[] = [
   {
@@ -120,3 +120,43 @@ export const EXPERIENCES: ExperienceLog[] = [
     iconName: 'brain'
   }
 ];
+
+export const DEFAULT_AWARDS: AwardItem[] = [
+  {
+    id: 'a1',
+    title: '2026 RoboCup Korea Open (CoSpace U12)',
+    award: '1st Place',
+    iconName: 'trophy'
+  },
+  {
+    id: 'a2',
+    title: '2026 RoboCup Singapore Open (CoSpace U12)',
+    award: 'Influencer Awards',
+    iconName: 'sparkles'
+  }
+];
+
+export const DEFAULT_SKILLS = [
+  'C Coding',
+  'Micro Python Coding',
+  'Block Coding',
+  'Robot Building',
+  'Problem Solving',
+  'Teamwork',
+  'PPT Presentation',
+  'Instruction Making'
+];
+
+export const DEFAULT_PORTFOLIO_DATA: PortfolioData = {
+  heroTitle: 'Building Robots,',
+  heroHighlight: 'Solving Problems',
+  heroSubtitle: '로봇을 만들고 코딩하며 문제를 해결한 과정을 소개합니다.',
+  heroParagraph: '저는 로봇을 만들고 코딩하며 문제를 해결하는 것을 좋아합니다. 센서와 모터를 활용해 로봇이 스스로 움직이도록 만드는 과정에 관심이 있습니다. 실패한 로봇을 다시 수정하고 테스트하면서 더 나은 해결 방법을 찾는 과정을 배우고 있습니다.',
+  heroQuote: '앞으로 다양한 로봇 프로젝트에 도전하며 창의적인 문제 해결 능력을 키우고 싶습니다.',
+  githubUrl: 'https://github.com/robot-specialist',
+  email: 'contact@robot-specialist.com',
+  skills: DEFAULT_SKILLS,
+  awards: DEFAULT_AWARDS,
+  experiences: EXPERIENCES,
+  projects: PROJECTS
+};
