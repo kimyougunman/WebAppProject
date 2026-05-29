@@ -371,19 +371,21 @@ export default function App() {
 
   // Edit Mode Toggle
   const handleStartEditing = () => {
-    if (!isFirebaseConfigured || !auth) {
-      alert('Firebase가 올바르게 구성되지 않았습니다. 실시간 클라우드 DB 연동(VITE_FIREBASE_*) 설정이 필요합니다.');
-      return;
-    }
-    if (currentUser) {
+    if (isFirebaseConfigured && auth) {
+      if (currentUser) {
+        setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
+        setIsEditMode(true);
+      } else {
+        setLoginEmail('');
+        setLoginPassword('');
+        setLoginError('');
+        setIsSignUpMode(false);
+        setIsLoginModalOpen(true);
+      }
+    } else {
+      // Offline/Local-only editing mode immediately
       setTempPortfolioData(JSON.parse(JSON.stringify(portfolioData)));
       setIsEditMode(true);
-    } else {
-      setLoginEmail('');
-      setLoginPassword('');
-      setLoginError('');
-      setIsSignUpMode(false);
-      setIsLoginModalOpen(true);
     }
   };
 
@@ -400,8 +402,8 @@ export default function App() {
   };
 
   const handleFirebaseLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
     if (!auth) return;
+    e.preventDefault();
     setLoginError('');
     try {
       if (isSignUpMode) {
@@ -436,6 +438,10 @@ export default function App() {
   // Edit Mode Save / Cancel
   const handleSaveEdits = async () => {
     try {
+      // Optimistically and immediately save state and local storage
+      setPortfolioData(tempPortfolioData);
+      localStorage.setItem('robot_portfolio_data', JSON.stringify(tempPortfolioData));
+
       if (isFirebaseConfigured && db) {
         // 1. About section
         const aboutRef = doc(db, 'about', 'main');
@@ -529,15 +535,16 @@ export default function App() {
           }
         }
 
-        console.log('Save success');
+        console.log('Firebase cloud synced successfully');
       } else {
-        throw new Error('Firebase가 활성화되거나 구성되지 않았습니다. 실시간 클라우드 DB 저장이 불가능합니다.');
+        console.log('Saved to local storage only.');
       }
       setIsEditMode(false);
     } catch (err) {
-      alert('저장 실패 (Save Failed): ' + (err instanceof Error ? err.message : String(err)));
-      console.log('Save failed: ' + err);
-      console.error('[Firestore Write Failure]', err);
+      alert('로컬에 임시 저장되었습니다 (정식 클라우드 동기화 실패): ' + (err instanceof Error ? err.message : String(err)));
+      console.warn('Firebase sync failure:', err);
+      // Still close edit mode as changes are safely persisted in local state & localStorage!
+      setIsEditMode(false);
     }
   };
 
